@@ -372,7 +372,14 @@ func newFromFloat(val float64, bits uint64, flt *floatInfo) Decimal {
 	d.Shift(exp - int(flt.mantbits))
 	d.neg = bits>>(flt.expbits+flt.mantbits) != 0
 
-	roundShortest(&d, mant, exp, flt)
+	// roundShortest picks the shortest decimal that still round-trips through
+	// float, which can disagree with the float's exact value and with
+	// NewFromInt(int64(f)). Skip that when f is an integer and int64↔float64
+	// is exact (e.g. any int64 that survives float64(i) unchanged).
+	exactInt64Float := val == math.Trunc(val) && !math.IsInf(val, 0) && float64(int64(val)) == val
+	if !exactInt64Float || d.dp < d.nd || d.trunc {
+		roundShortest(&d, mant, exp, flt)
+	}
 	// If less than 19 digits, we can do calculation in an int64.
 	if d.nd < 19 {
 		tmp := int64(0)
@@ -389,6 +396,9 @@ func newFromFloat(val float64, bits uint64, flt *floatInfo) Decimal {
 	dValue := new(big.Int)
 	dValue, ok := dValue.SetString(string(d.d[:d.nd]), 10)
 	if ok {
+		if d.neg {
+			dValue.Neg(dValue)
+		}
 		return Decimal{value: dValue, exp: int32(d.dp) - int32(d.nd)}
 	}
 
